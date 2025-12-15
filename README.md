@@ -1,8 +1,12 @@
 [![License](https://img.shields.io/badge/license-NonCommercial-orange)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Release](https://img.shields.io/github/v/release/alelosbrigia/LMU-telemetry)](https://github.com/alelosbrigia/LMU-telemetry/releases)
+![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+
 
 # 🏎️ LMU Telemetry → MoTeC Converter
+
+[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/alessandromanfredi)
 ---
 
 ## ✨ Features
@@ -117,9 +121,17 @@ Support for other DuckDB-based simulators
 
 ❤️ Credits
 LMU sim racing community
-
 MoTeC for the analysis software
-
 Everyone who tests and provides feedback
-
 chatgpt for the help 
+
+
+## 💙 Support the Project
+
+This is a community-driven, non-commercial project.
+
+If you find it useful and want to support its development, you can buy me a coffee ☕  
+on Ko-fi: 
+👉 https://ko-fi.com/alessandromanfredi
+
+
