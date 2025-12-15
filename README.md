@@ -1,11 +1,8 @@
+[![License](https://img.shields.io/badge/license-NonCommercial-orange)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![Release](https://img.shields.io/github/v/release/alelosbrigia/LMU-telemetry)](https://github.com/alelosbrigia/LMU-telemetry/releases)
+
 # 🏎️ LMU Telemetry → MoTeC Converter
-
-A community tool to convert **Le Mans Ultimate (LMU)** telemetry stored in **DuckDB** format into **MoTeC i2 (.ld)** logs.
-
-The goal of this project is to provide a **clean, readable and analysis-ready MoTeC log** starting from LMU telemetry, without broken timelines or manual post-processing.
-
-Designed for **sim racers**, **leagues**, **endurance racing**, and **setup analysis**.
-
 ---
 
 ## ✨ Features
