@@ -1,0 +1,157 @@
+import os
+import sys
+import threading
+import subprocess
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+APP_TITLE = "DuckDB → MoTeC (CUSTOM – gruppi logici)"
+
+GROUPS = {
+    "Driver": 100,
+    "Powertrain": 100,
+    "Dynamics": 100,
+    "AeroSusp": 50,
+    "Tyres": 20,
+    "Environment": 10,
+    "States": 20
+}
+
+def run_chain(cmds, log_widget, cwd=None):
+    def worker():
+        for cmd in cmds:
+            log_widget.insert(tk.END, "\n$ " + " ".join(cmd) + "\n")
+            log_widget.see(tk.END)
+            try:
+                p = subprocess.Popen(
+                    cmd,
+                    cwd=cwd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                for line in p.stdout:
+                    log_widget.insert(tk.END, line)
+                    log_widget.see(tk.END)
+                code = p.wait()
+                log_widget.insert(tk.END, f"\n[exit code: {code}]\n")
+                log_widget.see(tk.END)
+                if code != 0:
+                    log_widget.insert(tk.END, "\nSTOP: comando fallito.\n")
+                    log_widget.see(tk.END)
+                    break
+            except Exception as e:
+                log_widget.insert(tk.END, f"\n[ERROR] {e}\n")
+                log_widget.see(tk.END)
+                break
+    threading.Thread(target=worker, daemon=True).start()
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title(APP_TITLE)
+        self.geometry("900x620")
+
+        self.project_dir = os.path.dirname(os.path.abspath(__file__))
+        self.db_path = tk.StringVar(value="")
+
+        self.group_vars = {}
+        self.hz_vars = {}
+
+        top = tk.Frame(self)
+        top.pack(fill=tk.X, padx=10, pady=8)
+
+        tk.Label(top, text="DuckDB (.duckdb):").grid(row=0, column=0, sticky="w")
+        tk.Entry(top, textvariable=self.db_path, width=80).grid(row=0, column=1, sticky="we", padx=6)
+        tk.Button(top, text="Scegli...", command=self.pick_db).grid(row=0, column=2)
+        top.grid_columnconfigure(1, weight=1)
+
+        grp = tk.LabelFrame(self, text="Gruppi logici")
+        grp.pack(fill=tk.X, padx=10, pady=8)
+
+        row = 0
+        for g, hz in GROUPS.items():
+            v = tk.BooleanVar(value=True)
+            h = tk.StringVar(value=str(hz))
+            self.group_vars[g] = v
+            self.hz_vars[g] = h
+
+            tk.Checkbutton(grp, text=g, variable=v).grid(row=row, column=0, sticky="w")
+            tk.Label(grp, text="Hz").grid(row=row, column=1)
+            tk.Entry(grp, textvariable=h, width=6).grid(row=row, column=2, padx=4)
+            row += 1
+
+        tk.Button(
+            self,
+            text="ESEGUI → CUSTOM MoTeC",
+            command=self.run_all,
+            height=2
+        ).pack(pady=10)
+
+        logf = tk.LabelFrame(self, text="Log")
+        logf.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+
+        self.log = tk.Text(logf, wrap="word")
+        self.log.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+
+        sb = tk.Scrollbar(logf, command=self.log.yview)
+        sb.pack(fill=tk.Y, side=tk.RIGHT)
+        self.log.config(yscrollcommand=sb.set)
+
+    def pick_db(self):
+        path = filedialog.askopenfilename(
+            title="Seleziona DuckDB",
+            filetypes=[("DuckDB", "*.duckdb"), ("All files", "*.*")]
+        )
+        if path:
+            self.db_path.set(path)
+
+    def run_all(self):
+        db = self.db_path.get().strip()
+        if not db or not os.path.exists(db):
+            messagebox.showerror("Errore", "Seleziona un file .duckdb valido.")
+            return
+
+        selected = {}
+        for g, v in self.group_vars.items():
+            if v.get():
+                try:
+                    hz = int(self.hz_vars[g].get())
+                    if hz <= 0:
+                        raise ValueError
+                    selected[g] = hz
+                except Exception:
+                    messagebox.showerror("Errore", f"Hz non valido per gruppo {g}")
+                    return
+
+        if not selected:
+            messagebox.showerror("Errore", "Seleziona almeno un gruppo.")
+            return
+
+        master_hz = max(selected.values())
+
+        out_dir = os.path.join(self.project_dir, "Telemetry")
+        os.makedirs(out_dir, exist_ok=True)
+
+        base = os.path.splitext(os.path.basename(db))[0]
+        csv_out = os.path.join(out_dir, f"{base}_CUSTOM.csv")
+        ld_out = os.path.join(out_dir, f"{base}_CUSTOM")
+
+        unified = os.path.join(self.project_dir, "duckdb_to_motec_unified.py")
+        generator = os.path.join(self.project_dir, "motec_log_generator.py")
+
+        args = [f"{g}={hz}" for g, hz in selected.items()]
+
+        cmds = [
+            [sys.executable, unified, db, csv_out, *args],
+            [sys.executable, generator, csv_out, "CSV", "--frequency", str(master_hz), "--output", ld_out]
+        ]
+
+        self.log.insert(tk.END, f"\nOutput in: {out_dir}\n")
+        self.log.see(tk.END)
+
+        run_chain(cmds, self.log, cwd=self.project_dir)
+
+if __name__ == "__main__":
+    App().mainloop()
