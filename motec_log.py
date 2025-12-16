@@ -1,8 +1,31 @@
 import datetime
-import numpy as np
 import struct
-from data_log import DataLog, Message, Channel
-from ldparser.ldparser import ldVehicle, ldVenue, ldEvent, ldHead, ldChan, ldData
+from concurrent.futures import ProcessPoolExecutor
+
+import numpy as np
+
+from data_log import Channel, DataLog, Message
+from ldparser.ldparser import ldChan, ldData, ldEvent, ldHead, ldVehicle, ldVenue
+
+
+def _prepare_channel_data(log_channel):
+    """Convert a DataLog channel into a numpy array for ldparser.
+
+    This helper is defined at module scope so it can be executed in a
+    ``ProcessPoolExecutor`` to spread the conversion work across CPUs.
+    """
+
+    data_type = np.float32 if log_channel.data_type is float else np.int32
+    data_array = np.fromiter(
+        (msg.value for msg in log_channel.messages), dtype=data_type, count=len(log_channel.messages)
+    )
+
+    return {
+        "data_array": data_array,
+        "data_len": len(log_channel.messages),
+        "data_type": data_type,
+        "freq": int(log_channel.avg_frequency()),
+    }
 
 class MotecLog(object):
     """ Handles generating a MoTeC .ld file from log data.
@@ -54,10 +77,15 @@ class MotecLog(object):
             self.driver, self.vehicle_id, self.venue_name, self.datetime, self.short_comment, \
             self.event_name, self.event_session)
 
-    def add_channel(self, log_channel):
-        """ Adds a single channel of data to the motec log.
+    def add_channel(self, log_channel, prepared_data=None):
+        """Adds a single channel of data to the motec log.
 
-        log_channel: data_log.Channel
+        Parameters
+        ----------
+        log_channel : data_log.Channel
+            Channel to convert into ldparser structures.
+        prepared_data : dict | None
+            Optional pre-computed data produced by ``_prepare_channel_data``.
         """
         # Advance the header data pointer
         self.ld_header.data_ptr += self.CHANNEL_HEADER_SIZE
@@ -79,9 +107,11 @@ class MotecLog(object):
         next_meta_ptr = meta_ptr + self.CHANNEL_HEADER_SIZE
 
         # Channel specs
-        data_len = len(log_channel.messages)
-        data_type = np.float32 if log_channel.data_type is float else np.int32
-        freq = int(log_channel.avg_frequency())
+        data_len = prepared_data["data_len"] if prepared_data else len(log_channel.messages)
+        data_type = prepared_data["data_type"] if prepared_data else (
+            np.float32 if log_channel.data_type is float else np.int32
+        )
+        freq = prepared_data["freq"] if prepared_data else int(log_channel.avg_frequency())
         shift = 0
         multiplier = 1
         scale = 1
@@ -96,20 +126,46 @@ class MotecLog(object):
             log_channel.units)
 
         # Add in the channel data
-        ld_channel._data = np.array([], data_type)
-        for msg in log_channel.messages:
-            ld_channel._data = np.append(ld_channel._data, data_type(msg.value))
+        if prepared_data and "data_array" in prepared_data:
+            ld_channel._data = prepared_data["data_array"]
+        else:
+            ld_channel._data = np.fromiter(
+                (msg.value for msg in log_channel.messages), dtype=data_type, count=data_len
+            )
 
         # Add the ld channel and advance the file pointers
         self.ld_channels.append(ld_channel)
 
-    def add_all_channels(self, data_log):
-        """ Adds all channels from a DataLog to the motec log.
+    def add_all_channels(self, data_log, max_workers=None):
+        """Adds all channels from a DataLog to the motec log.
 
-        data_log: data_log.DataLog
+        Parameters
+        ----------
+        data_log : data_log.DataLog
+            Log container holding the channel data to convert.
+        max_workers : int | None
+            Optional override for the number of worker processes used when
+            converting channel payloads to numpy arrays. ``None`` lets
+            ``ProcessPoolExecutor`` decide based on CPU count. Use ``1`` to
+            force sequential execution.
         """
-        for channel_name, channel in data_log.channels.items():
-            self.add_channel(channel)
+
+        channel_items = list(data_log.channels.items())
+        prepared_channels = {}
+        use_parallel = max_workers != 1 and len(channel_items) > 1
+
+        if use_parallel:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                future_to_name = {
+                    executor.submit(_prepare_channel_data, channel): name for name, channel in channel_items
+                }
+
+                for future in future_to_name:
+                    name = future_to_name[future]
+                    prepared_channels[name] = future.result()
+
+        for channel_name, channel in channel_items:
+            self.add_channel(channel, prepared_channels.get(channel_name))
 
     def write(self, filename):
         """ Writes the motec log data to disc. """
