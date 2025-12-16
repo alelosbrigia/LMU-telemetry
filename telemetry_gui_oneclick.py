@@ -8,6 +8,45 @@ from tkinter import filedialog, messagebox
 
 APP_TITLE = "DuckDB → MoTeC (CUSTOM – gruppi logici)"
 
+
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tip_window = None
+        self.widget.bind("<Enter>", self.show)
+        self.widget.bind("<Leave>", self.hide)
+
+    def show(self, _event=None):
+        if self.tip_window is not None:
+            return
+        bbox = self.widget.bbox("insert")
+        cy = bbox[3] if bbox else 0
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + cy + 25
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            tw,
+            text=self.text,
+            justify=tk.LEFT,
+            background="#ffffe0",
+            relief=tk.SOLID,
+            borderwidth=1,
+            font=("tahoma", "8", "normal"),
+            padx=6,
+            pady=3,
+            wraplength=320,
+        )
+        label.pack(ipadx=1)
+
+    def hide(self, _event=None):
+        tw = self.tip_window
+        if tw is not None:
+            tw.destroy()
+        self.tip_window = None
+
 GROUPS = {
     "Driver": 100,
     "Powertrain": 100,
@@ -16,6 +55,16 @@ GROUPS = {
     "Tyres": 20,
     "Environment": 10,
     "States": 20
+}
+
+GROUP_DESCRIPTIONS = {
+    "Driver": "Driver inputs (brake, throttle, steering)",
+    "Powertrain": "Engine and drivetrain telemetry (rpm, gear, torque)",
+    "Dynamics": "Vehicle motion data (speed, acceleration, yaw)",
+    "AeroSusp": "Aero and suspension metrics (ride height, damping)",
+    "Tyres": "Tyre state and temps/pressures",
+    "Environment": "Ambient and track conditions",
+    "States": "Session/vehicle state flags"
 }
 
 def run_chain(cmds, log_widget, cwd=None, progress_cb=None):
@@ -77,6 +126,16 @@ def run_chain(cmds, log_widget, cwd=None, progress_cb=None):
                     })
                     stopped = True
                     break
+                if idx < total:
+                    pause_msg = "Attendere: preparazione del prossimo passaggio..."
+                    log_widget.insert(tk.END, f"\n{pause_msg}\n")
+                    log_widget.see(tk.END)
+                    notify({
+                        "type": "between",
+                        "index": idx,
+                        "total": total,
+                        "message": pause_msg,
+                    })
             except Exception as e:
                 log_widget.insert(tk.END, f"\n[ERROR] {e}\n")
                 log_widget.see(tk.END)
@@ -125,7 +184,11 @@ class App(tk.Tk):
             self.group_vars[g] = v
             self.hz_vars[g] = h
 
-            tk.Checkbutton(grp, text=g, variable=v).grid(row=row, column=0, sticky="w")
+            chk = tk.Checkbutton(grp, text=g, variable=v)
+            chk.grid(row=row, column=0, sticky="w")
+            desc = GROUP_DESCRIPTIONS.get(g, "")
+            if desc:
+                ToolTip(chk, desc)
             tk.Label(grp, text="Hz").grid(row=row, column=1)
             tk.Entry(grp, textvariable=h, width=6).grid(row=row, column=2, padx=4)
             row += 1
@@ -228,6 +291,10 @@ class App(tk.Tk):
                 percent = int((completed / total) * 100)
                 self.percent_var.set(f"{percent}%")
                 self.status_var.set(f"Passo {index}/{total}")
+
+            if etype == "between":
+                msg = event.get("message", "")
+                self.status_var.set(msg or "In attesa del prossimo passaggio…")
 
             if etype == "done":
                 if event.get("stopped"):
