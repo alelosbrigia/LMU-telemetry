@@ -45,6 +45,12 @@ if __name__ == '__main__':
     parser.add_argument("--event_session", type=str, default="", help="Motec log metadata field")
     parser.add_argument("--long_comment", type=str, default="", help="Motec log metadata field")
     parser.add_argument("--short_comment", type=str, default="", help="Motec log metadata field")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of worker processes for channel conversion (defaults to CPU count)",
+    )
     args = parser.parse_args()
 
     if args.log:
@@ -116,7 +122,7 @@ if __name__ == '__main__':
     motec_log.short_comment = args.short_comment
 
     motec_log.initialize()
-    motec_log.add_all_channels(data_log)
+    motec_log.add_all_channels(data_log, max_workers=args.workers)
 
     print("Saving MoTeC log...")
     if args.output:
