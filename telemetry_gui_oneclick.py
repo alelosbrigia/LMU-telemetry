@@ -1,6 +1,7 @@
 import os
 import sys
 import threading
+import time
 import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -17,11 +18,25 @@ GROUPS = {
     "States": 20
 }
 
-def run_chain(cmds, log_widget, cwd=None):
+def run_chain(cmds, log_widget, cwd=None, progress_cb=None):
+    def notify(event):
+        if progress_cb:
+            log_widget.after(0, progress_cb, event)
+
     def worker():
-        for cmd in cmds:
+        total = len(cmds)
+        stopped = False
+        for idx, cmd in enumerate(cmds, 1):
             log_widget.insert(tk.END, "\n$ " + " ".join(cmd) + "\n")
             log_widget.see(tk.END)
+            start_time = time.time()
+            notify({
+                "type": "start",
+                "index": idx,
+                "total": total,
+                "cmd": cmd,
+                "start": start_time,
+            })
             try:
                 p = subprocess.Popen(
                     cmd,
@@ -34,17 +49,47 @@ def run_chain(cmds, log_widget, cwd=None):
                 for line in p.stdout:
                     log_widget.insert(tk.END, line)
                     log_widget.see(tk.END)
+                    notify({
+                        "type": "tick",
+                        "index": idx,
+                        "total": total,
+                        "elapsed": time.time() - start_time,
+                    })
                 code = p.wait()
+                notify({
+                    "type": "end",
+                    "index": idx,
+                    "total": total,
+                    "elapsed": time.time() - start_time,
+                    "returncode": code,
+                })
                 log_widget.insert(tk.END, f"\n[exit code: {code}]\n")
                 log_widget.see(tk.END)
                 if code != 0:
                     log_widget.insert(tk.END, "\nSTOP: comando fallito.\n")
                     log_widget.see(tk.END)
+                    notify({
+                        "type": "stop",
+                        "index": idx,
+                        "total": total,
+                        "elapsed": time.time() - start_time,
+                        "returncode": code,
+                    })
+                    stopped = True
                     break
             except Exception as e:
                 log_widget.insert(tk.END, f"\n[ERROR] {e}\n")
                 log_widget.see(tk.END)
+                notify({
+                    "type": "error",
+                    "index": idx,
+                    "total": total,
+                    "elapsed": time.time() - start_time,
+                    "error": str(e),
+                })
+                stopped = True
                 break
+        notify({"type": "done", "stopped": stopped})
     threading.Thread(target=worker, daemon=True).start()
 
 class App(tk.Tk):
@@ -58,6 +103,9 @@ class App(tk.Tk):
 
         self.group_vars = {}
         self.hz_vars = {}
+        self.status_var = tk.StringVar(value="Pronto")
+        self.percent_var = tk.StringVar(value="0%")
+        self.elapsed_var = tk.StringVar(value="0.0s")
 
         top = tk.Frame(self)
         top.pack(fill=tk.X, padx=10, pady=8)
@@ -88,6 +136,18 @@ class App(tk.Tk):
             command=self.run_all,
             height=2
         ).pack(pady=10)
+
+        status = tk.Frame(self)
+        status.pack(fill=tk.X, padx=10)
+
+        tk.Label(status, text="Stato:").grid(row=0, column=0, sticky="w")
+        tk.Label(status, textvariable=self.status_var).grid(row=0, column=1, sticky="w", padx=(4, 20))
+
+        tk.Label(status, text="Percentuale totale:").grid(row=0, column=2, sticky="w")
+        tk.Label(status, textvariable=self.percent_var).grid(row=0, column=3, sticky="w", padx=(4, 20))
+
+        tk.Label(status, text="Tempo passo:").grid(row=0, column=4, sticky="w")
+        tk.Label(status, textvariable=self.elapsed_var).grid(row=0, column=5, sticky="w")
 
         logf = tk.LabelFrame(self, text="Log")
         logf.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
@@ -151,7 +211,36 @@ class App(tk.Tk):
         self.log.insert(tk.END, f"\nOutput in: {out_dir}\n")
         self.log.see(tk.END)
 
-        run_chain(cmds, self.log, cwd=self.project_dir)
+        self.status_var.set("In esecuzione...")
+        self.percent_var.set("0%")
+        self.elapsed_var.set("0.0s")
+
+        def handle_progress(event):
+            etype = event.get("type")
+            total = event.get("total", 1)
+            index = event.get("index", 0)
+
+            if etype in {"start", "tick", "end", "stop", "error"}:
+                elapsed = event.get("elapsed", 0.0)
+                self.elapsed_var.set(f"{elapsed:.1f}s")
+
+                completed = index - 1 if etype == "start" else index
+                percent = int((completed / total) * 100)
+                self.percent_var.set(f"{percent}%")
+                self.status_var.set(f"Passo {index}/{total}")
+
+            if etype == "done":
+                if event.get("stopped"):
+                    self.status_var.set("Interrotto")
+                else:
+                    self.status_var.set("Completato")
+                    self.percent_var.set("100%")
+                self.elapsed_var.set("-")
+
+            if etype in {"stop", "error"}:
+                self.status_var.set("Interrotto")
+
+        run_chain(cmds, self.log, cwd=self.project_dir, progress_cb=handle_progress)
 
 if __name__ == "__main__":
     App().mainloop()
