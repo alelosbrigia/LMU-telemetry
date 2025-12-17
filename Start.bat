@@ -1,17 +1,21 @@
 @echo off
 setlocal
 
-REM Vai nella cartella dove si trova questo .bat
+rem Ensure we run from the repo folder
 cd /d "%~dp0"
 
-REM Avvia la GUI con Python
-python telemetry_gui_oneclick.py
+set VENV_PY=.venv\Scripts\python.exe
+set PY_CMD=python
 
-REM Se Python non è nel PATH, mostra un messaggio
+if exist "%VENV_PY%" (
+    set PY_CMD=%VENV_PY%
+)
+
+%PY_CMD% telemetry_gui_oneclick.py
 if errorlevel 1 (
     echo.
-    echo ERRORE: Python non trovato.
-    echo Assicurati che Python 3.10+ sia installato e nel PATH.
+    echo ERROR: Python was not found or dependencies are missing.
+    echo Install Python 3.10+ and run install_dependencies.bat to set up requirements.
     pause
 )
 
