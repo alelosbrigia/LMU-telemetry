@@ -40,10 +40,22 @@
 ## 🖥️ Requirements
 
 - **Windows**
-- **Python 3.10+**
-- Python packages:
-  ```bash
-  pip install duckdb pandas numpy
+- **Python 3.10+** (with Tkinter, included in the official installer)
+
+### Quick install (recommended)
+
+1. Install Python 3.10 or newer and make sure it's available in your PATH.
+2. Double-click `install_dependencies.bat` to create a virtual environment and install all required packages.
+3. Launch the GUI with `Start.bat` (it will automatically use the virtual environment when present).
+
+### Manual install
+
+Install the dependencies directly if you prefer not to use the helper script:
+
+```bash
+pip install -r requirements.txt
+```
+
 Tkinter is included with the official Windows Python distribution.
 
 🚀 Quick Start

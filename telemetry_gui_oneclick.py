@@ -4,9 +4,9 @@ import threading
 import time
 import subprocess
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
-APP_TITLE = "DuckDB → MoTeC (CUSTOM – gruppi logici)"
+APP_TITLE = "DuckDB → MoTeC (CUSTOM – logical groups)"
 
 
 class ToolTip:
@@ -115,7 +115,7 @@ def run_chain(cmds, log_widget, cwd=None, progress_cb=None):
                 log_widget.insert(tk.END, f"\n[exit code: {code}]\n")
                 log_widget.see(tk.END)
                 if code != 0:
-                    log_widget.insert(tk.END, "\nSTOP: comando fallito.\n")
+                    log_widget.insert(tk.END, "\nSTOP: command failed.\n")
                     log_widget.see(tk.END)
                     notify({
                         "type": "stop",
@@ -127,7 +127,7 @@ def run_chain(cmds, log_widget, cwd=None, progress_cb=None):
                     stopped = True
                     break
                 if idx < total:
-                    pause_msg = "Attendere: preparazione del prossimo passaggio..."
+                    pause_msg = "Please wait: preparing the next step..."
                     log_widget.insert(tk.END, f"\n{pause_msg}\n")
                     log_widget.see(tk.END)
                     notify({
@@ -162,19 +162,22 @@ class App(tk.Tk):
 
         self.group_vars = {}
         self.hz_vars = {}
-        self.status_var = tk.StringVar(value="Pronto")
+        self.status_var = tk.StringVar(value="Ready")
+        self.step_var = tk.StringVar(value="Step 0/0")
         self.percent_var = tk.StringVar(value="0%")
         self.elapsed_var = tk.StringVar(value="0.0s")
+        self.cores_var = tk.IntVar(value=max(1, (os.cpu_count() or 4) // 2))
+        self.ram_var = tk.IntVar(value=4)
 
         top = tk.Frame(self)
         top.pack(fill=tk.X, padx=10, pady=8)
 
         tk.Label(top, text="DuckDB (.duckdb):").grid(row=0, column=0, sticky="w")
         tk.Entry(top, textvariable=self.db_path, width=80).grid(row=0, column=1, sticky="we", padx=6)
-        tk.Button(top, text="Scegli...", command=self.pick_db).grid(row=0, column=2)
+        tk.Button(top, text="Browse...", command=self.pick_db).grid(row=0, column=2)
         top.grid_columnconfigure(1, weight=1)
 
-        grp = tk.LabelFrame(self, text="Gruppi logici")
+        grp = tk.LabelFrame(self, text="Logical groups")
         grp.pack(fill=tk.X, padx=10, pady=8)
 
         row = 0
@@ -193,9 +196,23 @@ class App(tk.Tk):
             tk.Entry(grp, textvariable=h, width=6).grid(row=row, column=2, padx=4)
             row += 1
 
+        resources = ttk.Notebook(self)
+        resources.pack(fill=tk.X, padx=10, pady=(0, 8))
+
+        cpu_tab = ttk.Frame(resources)
+        mem_tab = ttk.Frame(resources)
+        resources.add(cpu_tab, text="CPU")
+        resources.add(mem_tab, text="Memory")
+
+        tk.Label(cpu_tab, text="Cores to dedicate:").grid(row=0, column=0, padx=8, pady=8, sticky="w")
+        tk.Spinbox(cpu_tab, from_=1, to=max(1, os.cpu_count() or 8), textvariable=self.cores_var, width=6).grid(row=0, column=1, padx=4, pady=8, sticky="w")
+
+        tk.Label(mem_tab, text="RAM to reserve (GB):").grid(row=0, column=0, padx=8, pady=8, sticky="w")
+        tk.Spinbox(mem_tab, from_=1, to=128, textvariable=self.ram_var, width=6).grid(row=0, column=1, padx=4, pady=8, sticky="w")
+
         tk.Button(
             self,
-            text="ESEGUI → CUSTOM MoTeC",
+            text="RUN → CUSTOM MoTeC",
             command=self.run_all,
             height=2
         ).pack(pady=10)
@@ -203,19 +220,27 @@ class App(tk.Tk):
         status = tk.Frame(self)
         status.pack(fill=tk.X, padx=10)
 
-        tk.Label(status, text="Stato:").grid(row=0, column=0, sticky="w")
-        tk.Label(status, textvariable=self.status_var).grid(row=0, column=1, sticky="w", padx=(4, 20))
+        tk.Label(status, text="Status:").grid(row=0, column=0, sticky="w")
+        tk.Label(status, textvariable=self.status_var, font=("TkDefaultFont", 10, "bold")).grid(row=0, column=1, sticky="w", padx=(4, 20))
 
-        tk.Label(status, text="Percentuale totale:").grid(row=0, column=2, sticky="w")
-        tk.Label(status, textvariable=self.percent_var).grid(row=0, column=3, sticky="w", padx=(4, 20))
+        tk.Label(status, text="Step:").grid(row=0, column=2, sticky="w")
+        tk.Label(status, textvariable=self.step_var).grid(row=0, column=3, sticky="w", padx=(4, 20))
 
-        tk.Label(status, text="Tempo passo:").grid(row=0, column=4, sticky="w")
-        tk.Label(status, textvariable=self.elapsed_var).grid(row=0, column=5, sticky="w")
+        tk.Label(status, text="Overall completion:").grid(row=0, column=4, sticky="w")
+        tk.Label(status, textvariable=self.percent_var, font=("TkDefaultFont", 11, "bold")).grid(row=0, column=5, sticky="w", padx=(4, 20))
 
-        logf = tk.LabelFrame(self, text="Log")
+        tk.Label(status, text="Step time:").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        tk.Label(status, textvariable=self.elapsed_var).grid(row=1, column=1, sticky="w", pady=(6, 0))
+
+        self.progress = ttk.Progressbar(status, orient="horizontal", mode="determinate", length=250)
+        self.progress.grid(row=1, column=4, columnspan=2, sticky="we", padx=(4, 0), pady=(6, 0))
+
+        status.grid_columnconfigure(5, weight=1)
+
+        logf = tk.LabelFrame(self, text="Logs")
         logf.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
 
-        self.log = tk.Text(logf, wrap="word")
+        self.log = tk.Text(logf, wrap="word", height=10, font=("Consolas", 9))
         self.log.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
 
         sb = tk.Scrollbar(logf, command=self.log.yview)
@@ -224,7 +249,7 @@ class App(tk.Tk):
 
     def pick_db(self):
         path = filedialog.askopenfilename(
-            title="Seleziona DuckDB",
+            title="Select DuckDB",
             filetypes=[("DuckDB", "*.duckdb"), ("All files", "*.*")]
         )
         if path:
@@ -233,7 +258,7 @@ class App(tk.Tk):
     def run_all(self):
         db = self.db_path.get().strip()
         if not db or not os.path.exists(db):
-            messagebox.showerror("Errore", "Seleziona un file .duckdb valido.")
+            messagebox.showerror("Error", "Select a valid .duckdb file.")
             return
 
         selected = {}
@@ -245,11 +270,11 @@ class App(tk.Tk):
                         raise ValueError
                     selected[g] = hz
                 except Exception:
-                    messagebox.showerror("Errore", f"Hz non valido per gruppo {g}")
+                    messagebox.showerror("Error", f"Invalid Hz for group {g}")
                     return
 
         if not selected:
-            messagebox.showerror("Errore", "Seleziona almeno un gruppo.")
+            messagebox.showerror("Error", "Select at least one group.")
             return
 
         master_hz = max(selected.values())
@@ -272,11 +297,14 @@ class App(tk.Tk):
         ]
 
         self.log.insert(tk.END, f"\nOutput in: {out_dir}\n")
+        self.log.insert(tk.END, f"Cores dedicated: {self.cores_var.get()} | RAM reserved: {self.ram_var.get()} GB\n")
         self.log.see(tk.END)
 
-        self.status_var.set("In esecuzione...")
+        self.status_var.set("Running...")
+        self.step_var.set("Step 0/0")
         self.percent_var.set("0%")
         self.elapsed_var.set("0.0s")
+        self.progress.config(value=0, maximum=100)
 
         def handle_progress(event):
             etype = event.get("type")
@@ -290,22 +318,25 @@ class App(tk.Tk):
                 completed = index - 1 if etype == "start" else index
                 percent = int((completed / total) * 100)
                 self.percent_var.set(f"{percent}%")
-                self.status_var.set(f"Passo {index}/{total}")
+                self.step_var.set(f"Step {index}/{total}")
+                self.status_var.set("Processing")
+                self.progress.config(value=percent)
 
             if etype == "between":
                 msg = event.get("message", "")
-                self.status_var.set(msg or "In attesa del prossimo passaggio…")
+                self.status_var.set(msg or "Waiting for the next step…")
 
             if etype == "done":
                 if event.get("stopped"):
-                    self.status_var.set("Interrotto")
+                    self.status_var.set("Stopped")
                 else:
-                    self.status_var.set("Completato")
+                    self.status_var.set("Completed")
                     self.percent_var.set("100%")
+                    self.progress.config(value=100)
                 self.elapsed_var.set("-")
 
             if etype in {"stop", "error"}:
-                self.status_var.set("Interrotto")
+                self.status_var.set("Stopped")
 
         run_chain(cmds, self.log, cwd=self.project_dir, progress_cb=handle_progress)
 
