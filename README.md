@@ -43,7 +43,7 @@
 - **Python 3.10+**
 - Python packages:
   ```bash
-  pip install duckdb pandas numpy
+  pip install duckdb pandas numpy cantools
 Tkinter is included with the official Windows Python distribution.
 
 🚀 Quick Start
