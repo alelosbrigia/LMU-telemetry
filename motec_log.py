@@ -8,6 +8,17 @@ from data_log import Channel, DataLog, Message
 from ldparser.ldparser import ldChan, ldData, ldEvent, ldHead, ldVehicle, ldVenue
 
 
+class BeaconEventBlock:
+    def __init__(self, times):
+        self.times = list(times)
+
+    def write(self, f):
+        # Simple block: [uint32 count][float32 times...]
+        f.write(struct.pack("<I", len(self.times)))
+        if self.times:
+            f.write(np.asarray(self.times, dtype=np.float32).tobytes())
+
+
 def _prepare_channel_data(log_channel):
     """Convert a DataLog channel into a numpy array for ldparser.
 
@@ -57,6 +68,7 @@ class MotecLog(object):
         self.long_comment = ""
         self.short_comment = ""
         self.datetime = datetime.datetime.now()
+        self.beacon_times = []
 
         # File components from ldparser
         self.ld_header = None
@@ -73,9 +85,13 @@ class MotecLog(object):
         ld_event = ldEvent(self.event_name, self.event_session, self.long_comment, \
             self.VENUE_PTR, ld_venue)
 
-        self.ld_header = ldHead(self.HEADER_PTR, self.HEADER_PTR, self.EVENT_PTR, ld_event, \
+        self.ld_header = ldHead(self.HEADER_PTR, self.HEADER_PTR, 0, ld_event, \
             self.driver, self.vehicle_id, self.venue_name, self.datetime, self.short_comment, \
             self.event_name, self.event_session)
+
+    def add_beacons(self, times):
+        """Store beacon (lap marker) timestamps in seconds."""
+        self.beacon_times = list(times or [])
 
     def add_channel(self, log_channel, prepared_data=None):
         """Adds a single channel of data to the motec log.
@@ -172,6 +188,13 @@ class MotecLog(object):
         # Check for the presence of any channels, since the ldData write() method doesn't
         # gracefully handle zero channels
         if self.ld_channels:
+            # If we have beacon times, place the event block right after the last channel data
+            if self.beacon_times and self.ld_channels:
+                last_channel = self.ld_channels[-1]
+                beacons_ptr = last_channel.data_ptr + last_channel._data.nbytes
+                self.ld_header.aux_ptr = beacons_ptr
+                self.ld_header.aux = BeaconEventBlock(self.beacon_times)
+
             ld_data = ldData(self.ld_header, self.ld_channels)
 
             # Need to zero out the final channel pointer
