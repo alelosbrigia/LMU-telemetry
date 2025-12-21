@@ -141,8 +141,6 @@ if __name__ == '__main__':
 
     motec_log.initialize()
     motec_log.add_all_channels(data_log, max_workers=args.workers)
-    if beacon_times:
-        motec_log.add_beacons(beacon_times)
 
     print("Saving MoTeC log...")
     if args.output:
