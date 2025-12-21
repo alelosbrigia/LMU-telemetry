@@ -370,6 +370,7 @@ def main():
     # Master Hz = max
     master_hz = max(group_hz.values())
     dt = 1.0 / master_hz
+    lap_force_hz = master_hz
 
     con = duckdb.connect(db, read_only=True)
 
