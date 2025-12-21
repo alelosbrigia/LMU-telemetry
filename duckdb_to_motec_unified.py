@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import duckdb
 
+EXPORTER_VERSION = "1.2.0"
 EXCLUDE = {"channelsList", "eventsList", "metadata"}
 
 # Gruppi logici (usati dalla GUI)
@@ -16,6 +17,25 @@ GROUPS = {
     "Environment": ["ambient", "track_temperature", "wind", "wetness", "cloud", "track temperature", "ambient temperature"],
     "States": ["abs", "tc", "tccut", "map", "bias", "flag", "state", "status", "pits", "limiter", "headlights"]
 }
+
+LAP_TABLE_HINTS = [
+    "lapdistance",
+    "lap distance",
+    "lapdist",
+    "lap dist",
+    "lapdistpct",
+    "lap dist pct",
+    "normalizedlap",
+    "normalisedlap",
+    "splinepos",
+    "lap position",
+    "lap progress",
+    "lap count",
+    "lapcounter",
+    "lap number",
+    "lap time",
+    "laptime",
+]
 
 # Ruote
 WHEEL_MAP = {"value1": "FL", "value2": "FR", "value3": "RL", "value4": "RR"}
@@ -326,6 +346,7 @@ def compute_lap_channels(df: pd.DataFrame):
     return beacon, lap_time, lap, source
 
 def main():
+    print(f"[Exporter] duckdb_to_motec_unified.py version {EXPORTER_VERSION}")
     if len(sys.argv) < 4:
         print("Uso: python duckdb_to_motec_unified.py file.duckdb output.csv Driver=100 Tyres=20 ...")
         sys.exit(1)
@@ -342,6 +363,7 @@ def main():
     # Master Hz = max
     master_hz = max(group_hz.values())
     dt = 1.0 / master_hz
+    lap_force_hz = master_hz
 
     con = duckdb.connect(db, read_only=True)
 
@@ -374,8 +396,11 @@ def main():
     # Per evitare duplicati se due gruppi matchano lo stesso canale/tabella
     added_cols = set()
 
-    for group, hz in group_hz.items():
-        patterns = GROUPS.get(group, [])
+    # Always force import of lap-related signals regardless of GUI selection
+    forced_groups = list(group_hz.items()) + [("__lap__", lap_force_hz)]
+
+    for group, hz in forced_groups:
+        patterns = GROUPS.get(group, LAP_TABLE_HINTS if group == "__lap__" else [])
 
         for t in tables:
             tl = t.lower()

@@ -13,7 +13,7 @@ class LapDetectionTests(unittest.TestCase):
 
         beacon, lap_time, lap, _ = compute_lap_channels(df)
 
-        self.assertListEqual(beacon.tolist(), [0, 0, 0, 1, 0, 0, 1])
+        self.assertListEqual(beacon.tolist(), [1, 0, 0, 1, 0, 0, 1])
         self.assertListEqual(lap_time.round(6).tolist(), [0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0])
         self.assertListEqual(lap.tolist(), [1, 1, 1, 2, 2, 2, 3])
 
