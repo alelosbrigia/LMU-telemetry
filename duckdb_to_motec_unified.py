@@ -215,37 +215,115 @@ def guess_units_decimals(ch: str):
     # Default
     return ("", 2)
 
-def detect_laps(df: pd.DataFrame):
-    lap_col = None
-    candidates = [c for c in df.columns if "lap" in c.lower()]
-    for c in candidates:
-        if c.lower() == "lap":
-            lap_col = c
-            break
-    if lap_col is None and candidates:
-        lap_col = candidates[0]
-
-    if lap_col:
-        lap_series = pd.to_numeric(df[lap_col], errors="coerce")
-        if lap_series.notna().any():
-            return lap_series.fillna(method="ffill").fillna(1).astype(int)
-
-    for keyword in ("lap time", "laptime"):
-        lap_time_cols = [c for c in df.columns if keyword in c.lower()]
-        if lap_time_cols:
-            lt = pd.to_numeric(df[lap_time_cols[0]], errors="coerce").fillna(method="ffill").fillna(0.0)
-            resets = lt.diff().fillna(0) < 0
-            laps = resets.cumsum() + 1
-            return laps.astype(int)
-
-    lap_dist_cols = [c for c in df.columns if "lap distance" in c.lower()]
-    if lap_dist_cols:
-        ld = pd.to_numeric(df[lap_dist_cols[0]], errors="coerce").fillna(method="ffill").fillna(0.0)
-        resets = ld.diff().fillna(0) < 0
-        laps = resets.cumsum() + 1
-        return laps.astype(int)
-
+def _find_column(df: pd.DataFrame, keywords, exclude=()):
+    for col in df.columns:
+        name = col.lower()
+        if any(k in name for k in keywords) and not any(e in name for e in exclude):
+            return col
     return None
+
+
+def _detect_normalized_lap(df: pd.DataFrame):
+    col = _find_column(df, ["lapdistpct", "lap dist pct", "lap distance pct", "normalizedlap", "normalisedlap", "splinepos", "lap position", "lap progress"])
+    if not col:
+        return None
+
+    series = pd.to_numeric(df[col], errors="coerce")
+    if not series.notna().any():
+        return None
+
+    series = series.ffill().clip(lower=0.0, upper=1.0)
+    wraps = (series.shift(1) > 0.95) & (series < 0.05)
+    beacon = wraps.fillna(False).astype(int)
+    lap = 1 + beacon.cumsum()
+    return {"source": f"normalized lap position ({col})", "beacon": beacon, "lap": lap}
+
+
+def _detect_lap_distance(df: pd.DataFrame):
+    col = _find_column(df, ["lap distance", "lapdistance", "lap_dist", "lapdist"])
+    if not col:
+        return None
+
+    dist = pd.to_numeric(df[col], errors="coerce")
+    if not dist.notna().any():
+        return None
+
+    dist = dist.ffill().fillna(0.0)
+    diff = dist.diff().fillna(0.0)
+
+    track_range = float(dist.max() - dist.min()) if len(dist) else 0.0
+    thresholds = []
+
+    if track_range > 0:
+        thresholds.append(-0.5 * track_range)
+
+    pos_step = diff[diff > 0].median()
+    if pd.notna(pos_step) and pos_step > 0:
+        thresholds.append(-5.0 * pos_step)
+
+    neg_quantile = diff.quantile(0.01)
+    if pd.notna(neg_quantile):
+        thresholds.append(neg_quantile)
+
+    threshold = min(thresholds) if thresholds else None
+    if threshold is None or threshold >= 0:
+        threshold = diff.min() - abs(diff.min()) * 0.1
+
+    wraps = diff < threshold
+    beacon = wraps.fillna(False).astype(int)
+    lap = 1 + beacon.cumsum()
+    return {"source": f"lap distance resets ({col})", "beacon": beacon, "lap": lap}
+
+
+def _detect_lap_numbers(df: pd.DataFrame):
+    col = _find_column(df, ["lap"], exclude=["lap time", "laptime", "lap distance", "lapdist", "lapdistpct"])
+    if not col:
+        return None
+
+    lap_series = pd.to_numeric(df[col], errors="coerce")
+    if not lap_series.notna().any():
+        return None
+
+    lap_series = lap_series.ffill().bfill()
+    wraps = lap_series.diff().fillna(0) > 0
+    beacon = wraps.astype(int)
+    return {"source": f"lap counter increments ({col})", "beacon": beacon, "lap": lap_series.astype(int)}
+
+
+def detect_laps(df: pd.DataFrame):
+    for detector in (_detect_normalized_lap, _detect_lap_distance, _detect_lap_numbers):
+        result = detector(df)
+        if result:
+            return result
+    return None
+
+
+def compute_lap_channels(df: pd.DataFrame):
+    time = pd.to_numeric(df["Time"], errors="coerce").astype(float)
+    detection = detect_laps(df)
+
+    if detection is None:
+        print("WARNING: No lap signal detected; Beacon=0 and LapTime=Time (no lap splits).", file=sys.stderr)
+        beacon = pd.Series(0, index=df.index, dtype=int)
+        lap_time = pd.Series(time, index=df.index)
+        lap = pd.Series(1, index=df.index, dtype=int)
+        source = None
+    else:
+        beacon = detection["beacon"].astype(int)
+        lap = detection["lap"].astype(int)
+        lap_start = time.iloc[0] if len(time) else 0.0
+        lap_time_vals = np.empty_like(time, dtype=float)
+        for i, t in enumerate(time):
+            if beacon.iat[i]:
+                lap_start = t
+                lap_time_vals[i] = 0.0
+            else:
+                lap_time_vals[i] = t - lap_start
+        lap_time = pd.Series(lap_time_vals, index=df.index)
+        source = detection["source"]
+        print(f"Lap detection: {source}")
+
+    return beacon, lap_time, lap, source
 
 def main():
     if len(sys.argv) < 4:
@@ -344,17 +422,10 @@ def main():
     out = pd.DataFrame(data).ffill().fillna(0)
 
     # Beacon + LapTime + Lap
-    lap_series = detect_laps(out)
-    if lap_series is None:
-        out["Lap"] = 1
-        out["Beacon"] = 0
-        out["LapTime"] = out["Time"]
-    else:
-        out["Lap"] = lap_series
-        beacon = (lap_series.diff().fillna(1) != 0).astype(int)
-        beacon.iloc[0] = 1
-        out["Beacon"] = beacon
-        out["LapTime"] = out["Time"] - out.groupby(lap_series)["Time"].transform("min")
+    beacon, lap_time, lap, _ = compute_lap_channels(out)
+    out["Beacon"] = beacon.astype(int)
+    out["LapTime"] = lap_time.astype(float)
+    out["Lap"] = lap.astype(int)
 
     # Ordine colonne
     cols = ["Time", "Beacon", "LapTime"] + [c for c in out.columns if c not in ("Time", "Beacon", "LapTime")]
