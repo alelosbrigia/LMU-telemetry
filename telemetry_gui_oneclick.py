@@ -6,8 +6,6 @@ import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from duckdb_to_motec_unified import EXPORTER_VERSION
-
 APP_TITLE = "DuckDB → MoTeC (CUSTOM – logical groups)"
 
 
@@ -288,8 +286,8 @@ class App(tk.Tk):
         csv_out = os.path.join(out_dir, f"{base}_CUSTOM.csv")
         ld_out = os.path.join(out_dir, f"{base}_CUSTOM")
 
-        unified = os.path.abspath(os.path.join(self.project_dir, "duckdb_to_motec_unified.py"))
-        generator = os.path.abspath(os.path.join(self.project_dir, "motec_log_generator.py"))
+        unified = os.path.join(self.project_dir, "duckdb_to_motec_unified.py")
+        generator = os.path.join(self.project_dir, "motec_log_generator.py")
 
         args = [f"{g}={hz}" for g, hz in selected.items()]
 
@@ -298,11 +296,7 @@ class App(tk.Tk):
             [sys.executable, generator, csv_out, "CSV", "--frequency", str(master_hz), "--output", ld_out]
         ]
 
-        self.log.insert(tk.END, f"\nExporter path: {unified}\n")
-        self.log.insert(tk.END, f"Exporter version: {EXPORTER_VERSION}\n")
-        self.log.insert(tk.END, f"Selected groups/Hz: {', '.join(args)}\n")
-        self.log.insert(tk.END, "Note: Lap signals are always included for Beacon/LapTime generation.\n")
-        self.log.insert(tk.END, f"Output in: {out_dir}\n")
+        self.log.insert(tk.END, f"\nOutput in: {out_dir}\n")
         self.log.insert(tk.END, f"Cores dedicated: {self.cores_var.get()} | RAM reserved: {self.ram_var.get()} GB\n")
         self.log.see(tk.END)
 
