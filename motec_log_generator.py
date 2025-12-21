@@ -102,10 +102,9 @@ if __name__ == '__main__':
     for channel_name, channel in data_log.channels.items():
         print("\t%s" % channel)
 
-    # Resample all the channels to occur at a fixed frequency. We must do this because the data in
-    # motec log expects a constant sample rate, it does not associate a timestamp to each individual
-    # message in a channel.
-    data_log.resample(args.frequency)
+    # Resample all channels except Beacon (events) to a fixed frequency.
+    # Beacon is left as-is to preserve discrete lap markers.
+    data_log.resample(args.frequency, skip_channels={"Beacon"})
 
     print("Converting to MoTeC log...")
 
