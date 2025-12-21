@@ -37,14 +37,17 @@ class DataLog(object):
         """ Returns the duration of the log [s]. """
         return self.end() - self.start()
 
-    def resample(self, frequency):
+    def resample(self, frequency, skip_channels=None):
         """ Resamples all channels such that all messages occur at a fixed frequency.
 
         See the resample method of the Channel class for more details.
         """
+        skip_channels = set(skip_channels or [])
         start = self.start()
         end = self.end()
         for channel_name in self.channels:
+            if channel_name in skip_channels:
+                continue
             self.channels[channel_name].resample(start, end, frequency)
 
     def from_can_log(self, log_lines, can_db):
@@ -103,7 +106,9 @@ class DataLog(object):
         i = 0
         channel_dict = {}
         for name in channel_names:
-            self.add_channel(name, "", float, 0)
+            data_type = int if name.strip().lower() == "beacon" else float
+            decimals = 0 if data_type is int else 0
+            self.add_channel(name, "", data_type, decimals)
 
             channel_dict[name] = i
             i += 1
@@ -124,12 +129,15 @@ class DataLog(object):
                 # We'll only parse numeric data
                 try:
                     val = float(values[i + 1])
+                    if self.channels[name].data_type is int:
+                        val = int(val)
                     message = Message(t, val)
                     self.channels[name].messages.append(message)
 
-                    val_text_split = values[i + 1].split(".")
-                    decimals_present = 0 if len(val_text_split) == 1 else len(val_text_split[1])
-                    self.channels[name].decimals = max(decimals_present, self.channels[name].decimals)
+                    if self.channels[name].data_type is float:
+                        val_text_split = values[i + 1].split(".")
+                        decimals_present = 0 if len(val_text_split) == 1 else len(val_text_split[1])
+                        self.channels[name].decimals = max(decimals_present, self.channels[name].decimals)
                 except ValueError:
                     print("WARNING: Found non numeric values for channel %s, removing channel" % \
                         name)
