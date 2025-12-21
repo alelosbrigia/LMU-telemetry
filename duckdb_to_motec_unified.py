@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import duckdb
 
-EXPORTER_VERSION = "1.3.0"
+EXPORTER_VERSION = "1.2.0"
 EXCLUDE = {"channelsList", "eventsList", "metadata"}
 
 # Gruppi logici (usati dalla GUI)
@@ -35,10 +35,6 @@ LAP_TABLE_HINTS = [
     "lap number",
     "lap time",
     "laptime",
-    "finish",
-    "sector",
-    "finish line",
-    "lap marker",
 ]
 
 # Ruote
@@ -264,7 +260,7 @@ def _detect_normalized_lap(df: pd.DataFrame):
 
 
 def _detect_lap_distance(df: pd.DataFrame):
-    col = _find_column(df, ["lap distance", "lapdistance", "lap_dist", "lapdist", "lap dist"])
+    col = _find_column(df, ["lap distance", "lapdistance", "lap_dist", "lapdist"])
     if not col:
         return None
 
@@ -289,9 +285,8 @@ def _detect_lap_distance(df: pd.DataFrame):
     if pd.notna(neg_quantile):
         thresholds.append(neg_quantile)
 
-    negative_thresholds = [t for t in thresholds if t < 0]
-    threshold = max(negative_thresholds) if negative_thresholds else None
-    if threshold is None:
+    threshold = min(thresholds) if thresholds else None
+    if threshold is None or threshold >= 0:
         threshold = diff.min() - abs(diff.min()) * 0.1
 
     wraps = diff < threshold
@@ -334,10 +329,8 @@ def compute_lap_channels(df: pd.DataFrame):
         lap = pd.Series(1, index=df.index, dtype=int)
         source = None
     else:
-        beacon = detection["beacon"].astype(int).clip(lower=0, upper=1)
+        beacon = detection["beacon"].astype(int)
         lap = detection["lap"].astype(int)
-        if len(beacon):
-            beacon.iloc[0] = 1  # force first sample to be a lap crossing
         lap_start = time.iloc[0] if len(time) else 0.0
         lap_time_vals = np.empty_like(time, dtype=float)
         for i, t in enumerate(time):
@@ -370,6 +363,7 @@ def main():
     # Master Hz = max
     master_hz = max(group_hz.values())
     dt = 1.0 / master_hz
+    lap_force_hz = master_hz
 
     con = duckdb.connect(db, read_only=True)
 
@@ -399,7 +393,15 @@ def main():
     master_time = np.arange(0.0, session_end + dt, dt, dtype=float)
     data = {"Time": master_time}
 
-    def import_tables(patterns, hz, desc):
+    # Per evitare duplicati se due gruppi matchano lo stesso canale/tabella
+    added_cols = set()
+
+    # Always force import of lap-related signals regardless of GUI selection
+    forced_groups = list(group_hz.items()) + [("__lap__", lap_force_hz)]
+
+    for group, hz in forced_groups:
+        patterns = GROUPS.get(group, LAP_TABLE_HINTS if group == "__lap__" else [])
+
         for t in tables:
             tl = t.lower()
             if not any(p in tl for p in patterns):
@@ -456,13 +458,6 @@ def main():
     out["Beacon"] = beacon.astype(int)
     out["LapTime"] = lap_time.astype(float)
     out["Lap"] = lap.astype(int)
-
-    if np.allclose(out["Beacon"].astype(float), out["Time"].astype(float)):
-        raise RuntimeError("Beacon channel equals Time. Lap signals were not detected/imported; please ensure lap position/distance data is available.")
-
-    beacon_unique = set(np.unique(out["Beacon"]))
-    if not beacon_unique.issubset({0, 1}):
-        raise RuntimeError(f"Beacon channel contains non-binary values: {beacon_unique}")
 
     # Ordine colonne
     cols = ["Time", "Beacon", "LapTime"] + [c for c in out.columns if c not in ("Time", "Beacon", "LapTime")]
