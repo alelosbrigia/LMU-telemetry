@@ -215,6 +215,38 @@ def guess_units_decimals(ch: str):
     # Default
     return ("", 2)
 
+def detect_laps(df: pd.DataFrame):
+    lap_col = None
+    candidates = [c for c in df.columns if "lap" in c.lower()]
+    for c in candidates:
+        if c.lower() == "lap":
+            lap_col = c
+            break
+    if lap_col is None and candidates:
+        lap_col = candidates[0]
+
+    if lap_col:
+        lap_series = pd.to_numeric(df[lap_col], errors="coerce")
+        if lap_series.notna().any():
+            return lap_series.fillna(method="ffill").fillna(1).astype(int)
+
+    for keyword in ("lap time", "laptime"):
+        lap_time_cols = [c for c in df.columns if keyword in c.lower()]
+        if lap_time_cols:
+            lt = pd.to_numeric(df[lap_time_cols[0]], errors="coerce").fillna(method="ffill").fillna(0.0)
+            resets = lt.diff().fillna(0) < 0
+            laps = resets.cumsum() + 1
+            return laps.astype(int)
+
+    lap_dist_cols = [c for c in df.columns if "lap distance" in c.lower()]
+    if lap_dist_cols:
+        ld = pd.to_numeric(df[lap_dist_cols[0]], errors="coerce").fillna(method="ffill").fillna(0.0)
+        resets = ld.diff().fillna(0) < 0
+        laps = resets.cumsum() + 1
+        return laps.astype(int)
+
+    return None
+
 def main():
     if len(sys.argv) < 4:
         print("Uso: python duckdb_to_motec_unified.py file.duckdb output.csv Driver=100 Tyres=20 ...")
@@ -311,14 +343,18 @@ def main():
 
     out = pd.DataFrame(data).ffill().fillna(0)
 
-    # Beacon + LapTime
-    if "Lap" in out.columns:
-        lap = out["Lap"]
-        out["Beacon"] = (lap.diff().fillna(0) != 0).astype(int)
-        out["LapTime"] = out["Time"] - out.groupby(lap)["Time"].transform("min")
-    else:
+    # Beacon + LapTime + Lap
+    lap_series = detect_laps(out)
+    if lap_series is None:
+        out["Lap"] = 1
         out["Beacon"] = 0
         out["LapTime"] = out["Time"]
+    else:
+        out["Lap"] = lap_series
+        beacon = (lap_series.diff().fillna(1) != 0).astype(int)
+        beacon.iloc[0] = 1
+        out["Beacon"] = beacon
+        out["LapTime"] = out["Time"] - out.groupby(lap_series)["Time"].transform("min")
 
     # Ordine colonne
     cols = ["Time", "Beacon", "LapTime"] + [c for c in out.columns if c not in ("Time", "Beacon", "LapTime")]
