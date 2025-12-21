@@ -11,7 +11,7 @@ EXCLUDE = {"channelsList", "eventsList", "metadata"}
 GROUPS = {
     "Driver": ["throttle", "brake", "clutch", "steer", "ffb"],
     "Powertrain": ["engine", "rpm", "gear", "boost", "turbo", "regen", "energy", "fuel", "soc"],
-    "Dynamics": ["speed", "yaw", "g_", "accel", "acceleration"],
+    "Dynamics": ["speed", "yaw", "g_", "accel", "acceleration", "lap"],
     "AeroSusp": ["rideheight", "susp", "deflection", "wing", "flap", "downforce", "drag"],
     "Tyres": ["tyre", "tire", "pressure", "rubber", "carcass", "rim", "wear", "compound", "temp"],
     "Environment": ["ambient", "track_temperature", "wind", "wetness", "cloud", "track temperature", "ambient temperature"],
@@ -411,7 +411,6 @@ def main():
             if df.empty:
                 continue
 
-            # timeline "gruppo"
             t_ch = np.arange(0.0, len(df) / hz, 1.0 / hz, dtype=float)
             if len(t_ch) > len(df):
                 t_ch = t_ch[:len(df)]
@@ -421,7 +420,6 @@ def main():
                 if np.isfinite(y).sum() < 5:
                     continue
 
-                # value1..4 -> FL/FR/RL/RR
                 suffix = WHEEL_MAP.get(str(c).lower(), str(c))
                 raw_name = (t if len(df.columns) == 1 else f"{t}_{suffix}")
                 name = motec_standard_name(normalize_name(raw_name))
@@ -441,6 +439,15 @@ def main():
                         continue
                     data[name] = np.interp(master_time, t_ch[m], y[m], left=np.nan, right=np.nan)
                     added_cols.add(name)
+        print(f"[Importer] Added tables for {desc}")
+
+    added_cols = set()
+
+    for group, hz in group_hz.items():
+        import_tables(GROUPS.get(group, []), hz, group)
+
+    # Force lap-related tables at master_hz regardless of selection
+    import_tables(LAP_TABLE_HINTS, master_hz, "lap signals")
 
     con.close()
 
