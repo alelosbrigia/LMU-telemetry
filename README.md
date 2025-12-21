@@ -92,6 +92,8 @@ Beacon and LapTime generated automatically
 
 Ready for overlays, histograms and math channels
 
+> ℹ️ Lap beacon generation: a lap-position signal (e.g. NormalizedLap / LapDistPct / SplinePos) is used to detect wraps; Beacon pulses are injected only on lap crossings and LapTime resets from that point.
+
 ⚠️ Disclaimer
 This project is not affiliated with:
 
@@ -145,5 +147,4 @@ This is a community-driven, non-commercial project.
 If you find it useful and want to support its development, you can buy me a coffee ☕  
 on Ko-fi: 
 👉 https://ko-fi.com/alessandromanfredi
-
 
