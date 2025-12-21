@@ -329,10 +329,8 @@ def compute_lap_channels(df: pd.DataFrame):
         lap = pd.Series(1, index=df.index, dtype=int)
         source = None
     else:
-        beacon = detection["beacon"].astype(int).clip(lower=0, upper=1)
+        beacon = detection["beacon"].astype(int)
         lap = detection["lap"].astype(int)
-        if len(beacon):
-            beacon.iloc[0] = 1  # force first sample to be a lap crossing
         lap_start = time.iloc[0] if len(time) else 0.0
         lap_time_vals = np.empty_like(time, dtype=float)
         for i, t in enumerate(time):
@@ -453,9 +451,6 @@ def main():
     out["Beacon"] = beacon.astype(int)
     out["LapTime"] = lap_time.astype(float)
     out["Lap"] = lap.astype(int)
-
-    if np.allclose(out["Beacon"].astype(float), out["Time"].astype(float)):
-        raise SystemExit("ERROR: Beacon channel equals Time. Lap signals were not detected/imported; please ensure lap position/distance data is available.")
 
     # Ordine colonne
     cols = ["Time", "Beacon", "LapTime"] + [c for c in out.columns if c not in ("Time", "Beacon", "LapTime")]
