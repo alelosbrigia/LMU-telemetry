@@ -301,6 +301,7 @@ class App(tk.Tk):
         self.log.insert(tk.END, f"\nExporter path: {unified}\n")
         self.log.insert(tk.END, f"Exporter version: {EXPORTER_VERSION}\n")
         self.log.insert(tk.END, f"Selected groups/Hz: {', '.join(args)}\n")
+        self.log.insert(tk.END, "Note: Lap signals are always included for Beacon/LapTime generation.\n")
         self.log.insert(tk.END, f"Output in: {out_dir}\n")
         self.log.insert(tk.END, f"Cores dedicated: {self.cores_var.get()} | RAM reserved: {self.ram_var.get()} GB\n")
         self.log.see(tk.END)

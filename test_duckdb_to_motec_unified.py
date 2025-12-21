@@ -27,6 +27,29 @@ class LapDetectionTests(unittest.TestCase):
         self.assertListEqual(lap_time.tolist(), time.tolist())
         self.assertListEqual(lap.tolist(), [1, 1, 1])
 
+    def test_csv_beacon_is_integer_pulse(self):
+        time = pd.Series([0.0, 1.0, 2.0, 3.0], name="Time")
+        lap_pos = pd.Series([0.0, 0.99, 0.02, 0.5], name="NormalizedLap")
+        df = pd.DataFrame({"Time": time, "NormalizedLap": lap_pos})
+
+        beacon, lap_time, lap, _ = compute_lap_channels(df)
+        out = pd.DataFrame({"Time": time, "Beacon": beacon, "LapTime": lap_time, "Lap": lap})
+        csv = out[["Time", "Beacon", "LapTime"]].to_csv(index=False, float_format="%.6f").strip().splitlines()
+
+        beacons = [line.split(",")[1] for line in csv[1:]]
+        self.assertListEqual(beacons, ["1", "0", "1", "0"])
+
+    def test_lap_distance_wraps(self):
+        time = pd.Series([0.0, 1.0, 2.0, 3.0, 4.0], name="Time")
+        lap_dist = pd.Series([0.0, 100.0, 200.0, 10.0, 120.0], name="Lap Dist")
+        df = pd.DataFrame({"Time": time, "Lap Dist": lap_dist})
+
+        beacon, lap_time, lap, _ = compute_lap_channels(df)
+
+        self.assertListEqual(beacon.tolist(), [1, 0, 0, 1, 0])
+        self.assertListEqual(lap.tolist(), [1, 1, 1, 2, 2])
+        self.assertListEqual(lap_time.tolist(), [0.0, 1.0, 2.0, 0.0, 1.0])
+
 
 if __name__ == "__main__":
     unittest.main()
